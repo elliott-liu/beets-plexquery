@@ -91,9 +91,8 @@ class PlexPlaylistQuery(InQuery[bytes]):
             )
             super().__init__("path", self.playlist_item_paths)
         except (ValueError, Exception) as e:
-            beets.ui.print_(
+            self._log.error(
                 f"Error setting up Plex playlist query for '{playlist_name}': {e}",
-                fg="red",
             )
             self.playlist_item_paths = []
             super().__init__("path", [])
