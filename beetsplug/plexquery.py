@@ -28,14 +28,12 @@ def get_plex_server(
     port: int,
     token: str,
     secure: bool,
-    ignore_cert_errors: bool,
 ) -> PlexServer:
     """Connects to and returns a PlexServer object."""
-    baseurl = f"{'https' if secure else 'http'}://{host}:{port}"
-    verify_ssl = not ignore_cert_errors
+    baseurl = f"{get_protocol(secure)}://{host}:{port}"
 
     try:
-        server = PlexServer(baseurl, token, timeout=10, verify=verify_ssl)
+        server = PlexServer(baseurl, token, timeout=10)
         return server
     except (Unauthorized, requests.exceptions.RequestException) as e:
         raise ValueError(f"Failed to connect to Plex server at {baseurl}: {e}")
@@ -88,64 +86,6 @@ def get_plex_playlist_items_plexapi(
         raise
 
 
-def get_music_section(
-    host: str,
-    port: int,
-    token: str,
-    library_name: str,
-    secure: bool,
-    ignore_cert_errors: bool,
-) -> str | None:
-    """Getting the section key for the music library in Plex."""
-    api_endpoint = append_token("library/sections", token)
-    url = urljoin(f"{get_protocol(secure)}://{host}:{port}", api_endpoint)
-
-    # Sends request.
-    r = requests.get(
-        url,
-        verify=not ignore_cert_errors,
-        timeout=10,
-    )
-
-    # Parse xml tree and extract music section key.
-    tree = ElementTree.fromstring(r.content)
-    for child in tree.findall("Directory"):
-        if child.get("title") == library_name:
-            return child.get("key")
-
-
-def update_plex(
-    host: str,
-    port: int,
-    token: str,
-    library_name: str,
-    secure: bool,
-    ignore_cert_errors: bool,
-) -> requests.Response:
-    """Ignore certificate errors if configured to."""
-    if ignore_cert_errors:
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    """Sends request to the Plex api to start a library refresh.
-    """
-    # Getting section key and build url.
-    section_key = get_music_section(
-        host, port, token, library_name, secure, ignore_cert_errors
-    )
-    api_endpoint = f"library/sections/{section_key}/refresh"
-    api_endpoint = append_token(api_endpoint, token)
-    url = urljoin(f"{get_protocol(secure)}://{host}:{port}", api_endpoint)
-
-    # Sends request and returns requests object.
-    r = requests.get(
-        url,
-        verify=not ignore_cert_errors,
-        timeout=10,
-    )
-    return r
-
-
 def append_token(url: str, token: str) -> str:
     """Appends the Plex Home token to the api call if required."""
     if token:
@@ -181,10 +121,9 @@ class PlexPlaylistQuery(InQuery[bytes]):
         port = plex_config["port"].get()
         token = plex_config["token"].get()
         secure = plex_config["secure"].get(bool)
-        ignore_cert_errors = plex_config["ignore_cert_errors"].get(bool)
 
         try:
-            plex_server = get_plex_server(host, port, token, secure, ignore_cert_errors)
+            plex_server = get_plex_server(host, port, token, secure)
             self.playlist_item_paths = get_plex_playlist_items_plexapi(
                 plex_server, playlist_name
             )
@@ -238,7 +177,6 @@ class PlexQueryPlugin(BeetsPlugin):
                 "token": "",
                 "library_name": "Music",
                 "secure": False,
-                "ignore_cert_errors": False,
             }
         )
         beets.config["plex"]["token"].redact = True
@@ -335,10 +273,9 @@ class PlexQueryPlugin(BeetsPlugin):
         port = plex_config["port"].get()
         token = plex_config["token"].get()
         secure = plex_config["secure"].get(bool)
-        ignore_cert_errors = plex_config["ignore_cert_errors"].get(bool)
 
         try:
-            plex_server = get_plex_server(host, port, token, secure, ignore_cert_errors)
+            plex_server = get_plex_server(host, port, token, secure)
             update_plex_library(
                 plex_server,
                 plex_config["library_name"].get(),
