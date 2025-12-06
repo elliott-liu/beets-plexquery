@@ -9,6 +9,7 @@ Put something like the following in your config.yaml to configure:
 """
 
 from collections.abc import Sequence
+from typing import cast
 
 import beets
 import requests
@@ -17,7 +18,7 @@ from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
 from beets.util import PathBytes
 from plexapi.exceptions import NotFound, Unauthorized
-from plexapi.server import PlexServer
+from plexapi.server import Playlist, PlexServer
 
 
 def get_protocol(secure: bool) -> str:
@@ -91,7 +92,11 @@ class PlexPlaylistQuery(InQuery[bytes]):
             playlist = server.playlist(playlist_name)
             item_paths: list[PathBytes] = []
 
-            for item in playlist.items():
+            if not playlist:
+                self._log.warning(f"Plex playlist '{playlist_name}' not found.")
+                return []
+
+            for item in cast(Playlist, playlist).items():
                 if hasattr(item, "media"):
                     for media in item.media:
                         for part in media.parts:
