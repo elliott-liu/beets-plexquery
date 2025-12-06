@@ -15,6 +15,7 @@ import requests
 from beets import logging
 from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
+from beets.util import PathBytes
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.server import PlexServer
 
@@ -47,7 +48,7 @@ class PlexPlaylistQuery(InQuery[bytes]):
 
     @property
     def subvals(self) -> Sequence[BLOB_TYPE]:
-        return [BLOB_TYPE(p.encode("utf-8")) for p in self.playlist_item_paths]
+        return [BLOB_TYPE(p) for p in self.pattern]
 
     def __init__(self, _, playlist_name: str, __):
         """
@@ -84,11 +85,11 @@ class PlexPlaylistQuery(InQuery[bytes]):
         playlist_name: str,
         beets_dir: str,
         plex_dir: str,
-    ) -> list[str]:
+    ) -> list[PathBytes]:
         """Fetches item paths for a given Plex playlist using plexapi."""
         try:
             playlist = server.playlist(playlist_name)
-            item_paths: list[str] = []
+            item_paths: list[PathBytes] = []
 
             for item in playlist.items():
                 if hasattr(item, "media"):
