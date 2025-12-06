@@ -19,6 +19,73 @@ import beets
 import requests
 from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
+from plexapi.server import PlexServer
+
+
+def get_plex_server(
+    host: str,
+    port: int,
+    token: str,
+    secure: bool,
+    ignore_cert_errors: bool,
+) -> PlexServer:
+    """Connects to and returns a PlexServer object."""
+    baseurl = f"{'https' if secure else 'http'}://{host}:{port}"
+    verify_ssl = not ignore_cert_errors
+
+    try:
+        server = PlexServer(baseurl, token, timeout=10, verify=verify_ssl)
+        return server
+    except (Unauthorized, requests.exceptions.RequestException) as e:
+        raise ValueError(f"Failed to connect to Plex server at {baseurl}: {e}")
+
+
+def update_plex_library(
+    server: PlexServer,
+    library_name: str,
+) -> None:
+    """Sends request to the Plex api to start a library refresh."""
+    try:
+        music_library = server.library.section(library_name)
+        music_library.refresh()
+        beets.ui.print_(f"Plex music library '{library_name}' refresh started.")
+    except NotFound:
+        raise ValueError(f"Plex music library '{library_name}' not found.")
+    except BadRequest as e:
+        beets.ui.print_(
+            f"Failed to refresh Plex library '{library_name}': {e}", fg="red"
+        )
+        raise
+    except requests.exceptions.RequestException as e:
+        beets.ui.print_(f"Network error during Plex library refresh: {e}", fg="red")
+        raise
+
+
+def get_plex_playlist_items_plexapi(
+    server: PlexServer,
+    playlist_name: str,
+) -> list[str]:
+    """Fetches item paths for a given Plex playlist using plexapi."""
+    try:
+        playlist = server.playlist(playlist_name)
+        item_paths: list[str] = []
+        for item in playlist.items():
+            if hasattr(item, "media"):
+                for media in item.media:
+                    for part in media.parts:
+                        full_path = part.file  # This is the server-side filesystem path
+                        if full_path:
+                            item_paths.append(full_path)
+        return item_paths
+    except NotFound:
+        beets.ui.print_(f"Plex playlist '{playlist_name}' not found.", fg="yellow")
+        return []
+    except Exception as e:
+        beets.ui.print_(
+            f"Error fetching Plex playlist '{playlist_name}': {e}", fg="red"
+        )
+        raise
 
 
 def get_music_section(
@@ -98,60 +165,41 @@ def is_m3u_file(path: str) -> bool:
 
 
 class PlexPlaylistQuery(InQuery[bytes]):
-    """Matches files listed by a playlist file."""
+    """Matches files listed by a Plex playlist."""
 
     @property
     def subvals(self) -> Sequence[BLOB_TYPE]:
-        return [BLOB_TYPE(p) for p in self.pattern]
+        return [BLOB_TYPE(p.encode("utf-8")) for p in self.playlist_item_paths]
 
-    def __init__(self, _, pattern: str, __):
-        config = beets.config["playlist"]
+    def __init__(self, _, playlist_name: str, __):
+        """
+        Initializes the query by fetching items from a Plex playlist.
+        The 'pattern' argument here is expected to be the Plex playlist name.
+        """
+        plex_config = beets.config["plex"]
+        host = plex_config["host"].get()
+        port = plex_config["port"].get()
+        token = plex_config["token"].get()
+        secure = plex_config["secure"].get(bool)
+        ignore_cert_errors = plex_config["ignore_cert_errors"].get(bool)
 
-        # Get the full path to the playlist
-        playlist_paths = (
-            pattern,
-            os.path.abspath(
-                os.path.join(
-                    config["playlist_dir"].as_filename(),
-                    f"{pattern}.m3u",
-                )
-            ),
-        )
-
-        paths = []
-        for playlist_path in playlist_paths:
-            if not is_m3u_file(playlist_path):
-                # This is not am M3U playlist, skip this candidate
-                continue
-
-            try:
-                f = open(beets.util.syspath(playlist_path), mode="rb")
-            except OSError:
-                continue
-
-            if config["relative_to"].get() == "library":
-                relative_to = beets.config["directory"].as_filename()
-            elif config["relative_to"].get() == "playlist":
-                relative_to = os.path.dirname(playlist_path)
-            else:
-                relative_to = config["relative_to"].as_filename()
-            relative_to = beets.util.bytestring_path(relative_to)
-
-            for line in f:
-                if line[0] == "#":
-                    # ignore comments, and extm3u extension
-                    continue
-
-                paths.append(
-                    beets.util.normpath(os.path.join(relative_to, line.rstrip()))
-                )
-            f.close()
-            break
-        super().__init__("path", paths)
+        try:
+            plex_server = get_plex_server(host, port, token, secure, ignore_cert_errors)
+            self.playlist_item_paths = get_plex_playlist_items_plexapi(
+                plex_server, playlist_name
+            )
+            super().__init__("path", self.playlist_item_paths)
+        except (ValueError, Exception) as e:
+            beets.ui.print_(
+                f"Error setting up Plex playlist query for '{playlist_name}': {e}",
+                fg="red",
+            )
+            self.playlist_item_paths = []
+            super().__init__("path", [])
 
 
 class PlexQueryPlugin(BeetsPlugin):
-    item_queries = {"plexquery:playlist": PlexPlaylistQuery}
+    item_queries = {"plexquery-playlist": PlexPlaylistQuery}
 
     def __init__(self):
         super().__init__()
@@ -193,18 +241,17 @@ class PlexQueryPlugin(BeetsPlugin):
                 "ignore_cert_errors": False,
             }
         )
-
         beets.config["plex"]["token"].redact = True
         self.register_listener("database_change", self.listen_for_db_change)
 
-    def item_moved(self, item, source, destination):
+    def item_moved(self, item, source, destination) -> None:
         self.changes[source] = destination
 
-    def item_removed(self, item):
+    def item_removed(self, item) -> None:
         if not os.path.exists(beets.util.syspath(item.path)):
             self.changes[item.path] = None
 
-    def cli_exit(self, lib):
+    def cli_exit(self, lib: beets.library.Library) -> None:
         for playlist in self.find_playlists():
             self._log.info("Updating playlist: {}", playlist)
             base_dir = beets.util.bytestring_path(
@@ -229,7 +276,7 @@ class PlexQueryPlugin(BeetsPlugin):
             if is_m3u_file(filename):
                 yield os.path.join(self.playlist_dir, filename)
 
-    def update_playlist(self, filename, base_dir):
+    def update_playlist(self, filename: str, base_dir: bytes) -> None:
         """Find M3U playlists in the specified directory."""
         changes = 0
         deletions = 0
@@ -240,7 +287,6 @@ class PlexQueryPlugin(BeetsPlugin):
                 for line in fp:
                     original_path = line.rstrip(b"\r\n")
 
-                    # Ensure that path from playlist is absolute
                     is_relative = not os.path.isabs(line)
                     if is_relative:
                         lookup = os.path.join(base_dir, original_path)
@@ -255,7 +301,6 @@ class PlexQueryPlugin(BeetsPlugin):
                         tempfp.write(line)
                     else:
                         if new_path is None:
-                            # Item has been deleted
                             deletions += 1
                             continue
 
@@ -277,25 +322,28 @@ class PlexQueryPlugin(BeetsPlugin):
             beets.util.copy(new_playlist, filename, replace=True)
         beets.util.remove(new_playlist)
 
-    def listen_for_db_change(self, lib: beets.library.Library, model):
+    def listen_for_db_change(self, lib: beets.library.Library, model) -> None:
         """Listens for beets db change and register the update for the end"""
         self.register_listener("cli_exit", self.update)
 
-    def update(self, lib: beets.library.Library):
+    def update(self, lib: beets.library.Library) -> None:
         """When the client exists try to send refresh request to Plex server."""
         self._log.info("Updating Plex library...")
 
-        # Try to send update request.
+        plex_config = beets.config["plex"]
+        host = plex_config["host"].get()
+        port = plex_config["port"].get()
+        token = plex_config["token"].get()
+        secure = plex_config["secure"].get(bool)
+        ignore_cert_errors = plex_config["ignore_cert_errors"].get(bool)
+
         try:
-            update_plex(
-                beets.config["plex"]["host"].get(),
-                beets.config["plex"]["port"].get(),
-                beets.config["plex"]["token"].get(),
-                beets.config["plex"]["library_name"].get(),
-                beets.config["plex"]["secure"].get(bool),
-                beets.config["plex"]["ignore_cert_errors"].get(bool),
+            plex_server = get_plex_server(host, port, token, secure, ignore_cert_errors)
+            update_plex_library(
+                plex_server,
+                plex_config["library_name"].get(),
             )
             self._log.info("... started.")
 
-        except requests.exceptions.RequestException:
-            self._log.warning("Update failed.")
+        except (ValueError, Exception) as e:
+            self._log.error(f"Plex update failed: {e}")
