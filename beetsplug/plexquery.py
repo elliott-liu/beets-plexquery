@@ -75,6 +75,7 @@ def get_plex_playlist_items_plexapi(
                         full_path = part.file  # This is the server-side filesystem path
                         if full_path:
                             item_paths.append(full_path)
+                            beets.ui.print_(f"Plex path found: {full_path}", fg="blue")
         return item_paths
     except NotFound:
         beets.ui.print_(f"Plex playlist '{playlist_name}' not found.", fg="yellow")
