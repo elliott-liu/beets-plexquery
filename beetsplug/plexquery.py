@@ -51,12 +51,10 @@ def update_plex_library(
     except NotFound:
         raise ValueError(f"Plex music library '{library_name}' not found.")
     except BadRequest as e:
-        beets.ui.print_(
-            f"Failed to refresh Plex library '{library_name}': {e}", fg="red"
-        )
+        beets.ui.print_(f"Failed to refresh Plex library '{library_name}': {e}")
         raise
     except requests.exceptions.RequestException as e:
-        beets.ui.print_(f"Network error during Plex library refresh: {e}", fg="red")
+        beets.ui.print_(f"Network error during Plex library refresh: {e}")
         raise
 
 
@@ -75,15 +73,13 @@ def get_plex_playlist_items_plexapi(
                         full_path = part.file  # This is the server-side filesystem path
                         if full_path:
                             item_paths.append(full_path)
-                            beets.ui.print_(f"Plex path found: {full_path}", fg="blue")
+                            beets.ui.print_(f"Plex path found: {full_path}")
         return item_paths
     except NotFound:
-        beets.ui.print_(f"Plex playlist '{playlist_name}' not found.", fg="yellow")
+        beets.ui.print_(f"Plex playlist '{playlist_name}' not found.")
         return []
     except Exception as e:
-        beets.ui.print_(
-            f"Error fetching Plex playlist '{playlist_name}': {e}", fg="red"
-        )
+        beets.ui.print_(f"Error fetching Plex playlist '{playlist_name}': {e}")
         raise
 
 
