@@ -48,7 +48,7 @@ class PlexPlaylistQuery(InQuery[bytes]):
 
     @property
     def subvals(self) -> Sequence[BLOB_TYPE]:
-        return [BLOB_TYPE(p) for p in self.pattern]
+        return [BLOB_TYPE(p) for p in self.playlist_item_paths]
 
     def __init__(self, _, playlist_name: str, __):
         """
@@ -117,7 +117,9 @@ class PlexPlaylistQuery(InQuery[bytes]):
                                         f"Using original Plex path: {full_plex_path}"
                                     )
 
-                                item_paths.append(translated_path)
+                                item_paths.append(
+                                    beets.util.bytestring_path(translated_path)
+                                )
             return item_paths
         except NotFound:
             self._log.warning(f"Plex playlist '{playlist_name}' not found.")
