@@ -54,11 +54,7 @@ class PlexPlaylistQuery(InQuery[bytes]):
         Initializes the query by fetching items from a Plex playlist.
         The 'pattern' argument here is expected to be the Plex playlist name.
         """
-        log = logging.getLogger("beets")
-        self._log = log.getChild(self.name)
-        self._log.setLevel(logging.NOTSET)  # Use `beets` logger level.
-        if not any(isinstance(f, beets.PluginLogFilter) for f in self._log.filters):
-            self._log.addFilter(beets.PluginLogFilter(self))
+        self._log = logging.getLogger("beets")
 
         try:
             plex_server = get_plex_server(
