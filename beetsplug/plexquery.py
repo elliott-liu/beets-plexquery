@@ -47,6 +47,8 @@ def get_plex_server(
 class PlexPlaylistQuery(InQuery[bytes]):
     """Matches files listed by a Plex playlist."""
 
+    _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
+
     @property
     def subvals(self) -> Sequence[BLOB_TYPE]:
         return [BLOB_TYPE(p) for p in self.playlist_item_paths]
@@ -56,7 +58,6 @@ class PlexPlaylistQuery(InQuery[bytes]):
         Initializes the query by fetching items from a Plex playlist.
         The 'pattern' argument here is expected to be the Plex playlist name.
         """
-        self._log = logging.getLogger("beets")
 
         try:
             plex_server = get_plex_server(
