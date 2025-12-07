@@ -176,7 +176,7 @@ class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
 
     @property
     def subvals(self) -> Sequence[dbcore.query.BLOB_TYPE]:
-        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_album_ids]
+        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_album_paths]
 
     def __init__(self, _, playlist_name: str, __):
         try:
@@ -192,8 +192,7 @@ class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
                 beets.config["plex"]["library_name"].get(),
             )
 
-            # Get the item paths from Plex
-            plex_item_paths = get_plex_playlist_items_plexapi(
+            playlist_item_paths = get_plex_playlist_items_plexapi(
                 plex_server,
                 playlist_name,
                 beets.config["directory"].as_filename(),
@@ -204,20 +203,14 @@ class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
 
             lib = library.Library(beets.config["library"].as_filename())
 
-            unique_album_ids: set[bytes] = set()
-            for item_path in plex_item_paths:
-                # Need to lookup items by path to get their album IDs
-                # Beets' path field uses the util.PathBytes type, which are bytes
-                items_in_beets = lib.items(
-                    f"path:{item_path.decode('utf-8')}"
-                )  # Decode to string for query
+            self.playlist_album_paths: set[util.PathBytes] = set()
+            for item_path in playlist_item_paths:
+                for album in lib.albums(f"path:{item_path}"):
+                    self.playlist_album_paths.add(
+                        beets.util.bytestring_path(album.filepath)
+                    )
 
-                for beets_item in items_in_beets:
-                    unique_album_ids.add(beets_item.album_id)  # Convert UUID to string
-
-            self.playlist_album_ids = list(unique_album_ids)
-
-            super().__init__("albumid", self.playlist_album_ids)
+            super().__init__("path", list(self.playlist_album_paths))
 
         except (ValueError, Exception) as e:
             self._log.error(
