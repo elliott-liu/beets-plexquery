@@ -218,7 +218,7 @@ class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
     item_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
-    album_queries = {"plexquery-playlist": PlexPlaylistAlbumQuery}
+    album_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
 
     def __init__(self):
         super().__init__()
