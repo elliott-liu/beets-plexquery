@@ -220,7 +220,7 @@ class PlexQueryPlugin(BeetsPlugin):
         ui.print_("Commands:")
         ui.print_("  help      - show this help message")
         ui.print_("  playlists - list available playlists from Plex server")
-        ui.print_("\nSee 'beet help plexquery' for more details.")
+        ui.print_("\nSee 'beet help plexquery' for more details")
 
     def list_plex_playlists(self, lib, opts, args) -> None:
         """Beets CLI handler to list all Plex playlists."""
@@ -276,13 +276,8 @@ class PlexQueryPlugin(BeetsPlugin):
                         f"Could not inspect items for playlist '{cast(Playlist, playlist).title}': {e}"
                     )
 
-            if not library_playlists:
-                ui.print_("No playlists found on Plex server.")
-                return
-
-            ui.print_("Plex Playlists:")
             for playlist in sorted(library_playlists, key=lambda p: p.title):
-                ui.print_(f"  - {playlist.title}")
+                ui.print_(playlist.title)
 
         except Exception as e:
             self._log.error(
