@@ -23,11 +23,21 @@ plexquery:
 
 ## Usage
 
-### Playlist Query
+### List
 
-This query type allows you to retrieve items from your Beets library that are present in a specified Plex playlist.
+#### Playlists
 
-You can reference Plex playlists by their exact name:
+This command allows you to list all available playlists from your Plex server:
+
+```console
+beet plexquery playlists
+```
+
+### Query
+
+#### Playlist
+
+This query type allows you to retrieve items from your Beets library that are present in a specified Plex playlist. You can reference Plex playlists by their exact name:
 
 ```console
 beet ls plexquery-playlist:"My Favorite Tracks"
