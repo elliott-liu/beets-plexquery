@@ -165,8 +165,6 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery[bytes]):
             self._log.error(
                 f"Error setting up Plex playlist query for '{playlist_name}': {e}",
             )
-            self.playlist_item_paths = []
-            super().__init__("path", [])
 
 
 class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
@@ -216,8 +214,6 @@ class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
             self._log.error(
                 f"Error setting up Plex playlist album query for '{playlist_name}': {e}",
             )
-            self.playlist_album_ids = []
-            super().__init__("albumid", [])
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
