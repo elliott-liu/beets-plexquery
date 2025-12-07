@@ -167,55 +167,6 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery[bytes]):
             )
 
 
-class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
-    """Matches albums based on items listed by a Plex playlist (album-level)."""
-
-    _log = logging.getLogger("beets.plexquery.PlexPlaylistAlbumQuery")
-
-    @property
-    def subvals(self) -> Sequence[dbcore.query.BLOB_TYPE]:
-        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_album_paths]
-
-    def __init__(self, _, playlist_name: str, __):
-        try:
-            plex_server = get_plex_server(
-                beets.config["plex"]["host"].get(),
-                beets.config["plex"]["port"].get(),
-                beets.config["plex"]["token"].get(),
-                beets.config["plex"]["secure"].get(bool),
-            )
-
-            library_key = get_plex_music_library_key(
-                plex_server,
-                beets.config["plex"]["library_name"].get(),
-            )
-
-            playlist_item_paths = get_plex_playlist_items_plexapi(
-                plex_server,
-                playlist_name,
-                beets.config["directory"].as_filename(),
-                beets.config["plexquery"]["plex_dir"].get(),
-                library_key,
-                self._log,
-            )
-
-            lib = library.Library(beets.config["library"].as_filename())
-
-            self.playlist_album_paths: set[util.PathBytes] = set()
-            for item_path in playlist_item_paths:
-                for album in lib.albums(f"path:{item_path}"):
-                    self.playlist_album_paths.add(
-                        beets.util.bytestring_path(album.filepath)
-                    )
-
-            super().__init__("path", list(self.playlist_album_paths))
-
-        except (ValueError, Exception) as e:
-            self._log.error(
-                f"Error setting up Plex playlist album query for '{playlist_name}': {e}",
-            )
-
-
 class PlexQueryPlugin(plugins.BeetsPlugin):
     item_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
     album_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
