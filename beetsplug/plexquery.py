@@ -16,6 +16,7 @@ import requests
 from beets import logging
 from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
+from beets.ui import Subcommand
 from beets.util import PathBytes
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MusicSection
@@ -194,18 +195,32 @@ class PlexQueryPlugin(BeetsPlugin):
         beets.config["plex"]["token"].redact = True
 
     def commands(self):
-        cmd = beets.ui.Subcommand(
-            "plexquery", help="manage Plex-related queries and tasks"
-        )
-
-        playlists_cmd = beets.ui.Subcommand(
-            "playlists",
-            help="list available playlists from Plex",
-        )
-        playlists_cmd.func = self.list_plex_playlists
-        cmd.add_subcommand(playlists_cmd)
-
+        cmd = Subcommand("plexquery", help="manage Plex-related queries and tasks")
+        cmd.func = self.command_dispatcher
         return [cmd]
+
+    def command_dispatcher(self, lib, opts, args) -> None:
+        """Dispatches 'plexquery' subcommands based on arguments."""
+        if not args:
+            self.help(lib, opts, args)
+            return
+
+        subcommand_name = args[0]
+        sub_args = args[1:]
+
+        if subcommand_name == "playlists":
+            self.list_plex_playlists(lib, opts, sub_args)
+        elif subcommand_name == "help":
+            self.help(lib, opts, sub_args)
+        else:
+            self._log.info(f"Error: Unknown 'plexquery' command: {subcommand_name}")
+            self._log.info("See 'beet help plexquery' for available commands.")
+
+    def help(self, lib, opts, args) -> None:
+        self._log.info("Usage: beet plexquery <command>")
+        self._log.info("Commands:")
+        self._log.info("  playlists - list available playlists from Plex server")
+        self._log.info("\nSee 'beet help plexquery' for more details.")
 
     def list_plex_playlists(self, lib, opts, args) -> None:
         """Beets CLI handler to list all Plex playlists."""
