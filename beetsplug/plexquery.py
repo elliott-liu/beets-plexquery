@@ -18,6 +18,7 @@ from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
 from beets.util import PathBytes
 from plexapi.exceptions import NotFound, Unauthorized
+from plexapi.library import MusicSection
 from plexapi.server import Playlist, PlexServer
 
 
@@ -41,7 +42,21 @@ def get_plex_server(
         server = PlexServer(baseurl, token, timeout=10)
         return server
     except (Unauthorized, requests.exceptions.RequestException) as e:
-        raise ValueError(f"Failed to connect to Plex server at {baseurl}: {e}")
+        raise ValueError(f"Failed to connect to Plex server at '{baseurl}': {e}")
+
+
+def get_plex_music_library_key(
+    server: PlexServer,
+    library_name: str,
+) -> float:
+    """Retrieves the unique key for a Plex music library by its name."""
+    try:
+        music_library: MusicSection = server.library.section(library_name)
+        return music_library.key
+    except NotFound:
+        raise ValueError(f"Plex music library '{library_name}' not found.")
+    except Exception as e:
+        raise ValueError(f"Error accessing Plex library '{library_name}': {e}") from e
 
 
 class PlexPlaylistQuery(InQuery[bytes]):
@@ -67,11 +82,17 @@ class PlexPlaylistQuery(InQuery[bytes]):
                 beets.config["plex"]["secure"].get(bool),
             )
 
+            library_key = get_plex_music_library_key(
+                plex_server,
+                beets.config["plex"]["library_name"].get(),
+            )
+
             self.playlist_item_paths = self.get_plex_playlist_items_plexapi(
                 plex_server,
                 playlist_name,
                 beets.config["directory"].as_filename(),
                 beets.config["plexquery"]["plex_dir"].get(),
+                library_key,
             )
             super().__init__("path", self.playlist_item_paths)
         except (ValueError, Exception) as e:
@@ -87,49 +108,52 @@ class PlexPlaylistQuery(InQuery[bytes]):
         playlist_name: str,
         beets_dir: str,
         plex_dir: str,
+        library_key: float,
     ) -> list[PathBytes]:
         """Fetches item paths for a given Plex playlist using plexapi."""
         try:
-            playlist = server.playlist(playlist_name)
-            item_paths: list[PathBytes] = []
-
-            if not playlist:
+            try:
+                playlist = server.playlist(playlist_name)
+            except NotFound:
                 self._log.warning(f"Plex playlist '{playlist_name}' not found.")
                 return []
 
-            for item in cast(Playlist, playlist).items():
-                if hasattr(item, "media"):
-                    for media in item.media:
-                        for part in media.parts:
-                            full_plex_path = (
-                                part.file
-                            )  # This is the server-side filesystem path
-                            if full_plex_path:
-                                translated_path = full_plex_path
-                                if (
-                                    plex_dir
-                                    and beets_dir
-                                    and full_plex_path.startswith(plex_dir)
-                                ):
-                                    translated_path = full_plex_path.replace(
-                                        plex_dir, beets_dir, 1
-                                    )
-                                    self._log.debug(
-                                        f"Plex path: {full_plex_path}, Translated to: {translated_path}"
-                                    )
-                                else:
-                                    # If no mapping or path doesn't start with plex_dir, use original Plex path
-                                    self._log.debug(
-                                        f"Using original Plex path: {full_plex_path}"
-                                    )
+            item_paths: list[PathBytes] = []
 
-                                item_paths.append(
-                                    beets.util.bytestring_path(translated_path)
-                                )
+            for item in cast(Playlist, playlist).items():
+                if (
+                    hasattr(item, "librarySectionID")
+                    and item.librarySectionID == library_key
+                ):
+                    if hasattr(item, "media"):
+                        for media in item.media:
+                            for part in media.parts:
+                                full_plex_path = (
+                                    part.file
+                                )  # This is the server-side filesystem path
+                                if full_plex_path:
+                                    translated_path = full_plex_path
+                                    if (
+                                        plex_dir
+                                        and beets_dir
+                                        and full_plex_path.startswith(plex_dir)
+                                    ):
+                                        translated_path = full_plex_path.replace(
+                                            plex_dir, beets_dir, 1
+                                        )
+                                        self._log.debug(
+                                            f"Plex path: {full_plex_path}, Translated to: {translated_path}"
+                                        )
+                                    else:
+                                        # If no mapping or path doesn't start with plex_dir, use original Plex path
+                                        self._log.debug(
+                                            f"Using original Plex path: {full_plex_path}"
+                                        )
+
+                                    item_paths.append(
+                                        beets.util.bytestring_path(translated_path)
+                                    )
             return item_paths
-        except NotFound:
-            self._log.warning(f"Plex playlist '{playlist_name}' not found.")
-            return []
         except Exception as e:
             self._log.error(
                 f"Error fetching Plex playlist '{playlist_name}': {e}",
@@ -153,7 +177,6 @@ class PlexQueryPlugin(BeetsPlugin):
                 "host": "localhost",
                 "port": 32400,
                 "token": "",
-                "library_name": "Music",
                 "secure": False,
             }
         )
