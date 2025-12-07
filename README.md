@@ -23,7 +23,13 @@ plexquery:
 
 ## Usage
 
-### List
+### Commands
+
+To see all available commands and their usage, run:
+
+```console
+beet plexquery help
+```
 
 #### Playlists
 
