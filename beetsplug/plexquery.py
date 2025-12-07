@@ -13,10 +13,9 @@ from typing import cast
 
 import beets
 import requests
-from beets import logging
+from beets import logging, ui
 from beets.dbcore.query import BLOB_TYPE, InQuery
 from beets.plugins import BeetsPlugin
-from beets.ui import Subcommand
 from beets.util import PathBytes
 from plexapi.exceptions import NotFound, Unauthorized
 from plexapi.library import MusicSection
@@ -195,7 +194,7 @@ class PlexQueryPlugin(BeetsPlugin):
         beets.config["plex"]["token"].redact = True
 
     def commands(self):
-        cmd = Subcommand("plexquery", help="manage Plex-related queries and tasks")
+        cmd = ui.Subcommand("plexquery", help="manage Plex-related queries and tasks")
         cmd.func = self.command_dispatcher
         return [cmd]
 
@@ -213,14 +212,15 @@ class PlexQueryPlugin(BeetsPlugin):
         elif subcommand_name == "help":
             self.help(lib, opts, sub_args)
         else:
-            self._log.info(f"Error: Unknown 'plexquery' command: {subcommand_name}")
-            self._log.info("See 'beet help plexquery' for available commands.")
+            ui.print_(f"Unknown 'plexquery' command: {subcommand_name}\n")
+            self.help(lib, opts, sub_args)
 
     def help(self, lib, opts, args) -> None:
-        self._log.info("Usage: beet plexquery <command>")
-        self._log.info("Commands:")
-        self._log.info("  playlists - list available playlists from Plex server")
-        self._log.info("\nSee 'beet help plexquery' for more details.")
+        ui.print_("Usage: beet plexquery <command>\n")
+        ui.print_("Commands:")
+        ui.print_("  help      - show this help message")
+        ui.print_("  playlists - list available playlists from Plex server")
+        ui.print_("\nSee 'beet help plexquery' for more details.")
 
     def list_plex_playlists(self, lib, opts, args) -> None:
         """Beets CLI handler to list all Plex playlists."""
@@ -277,12 +277,12 @@ class PlexQueryPlugin(BeetsPlugin):
                     )
 
             if not library_playlists:
-                self._log.info("No playlists found on Plex server.")
+                ui.print_("No playlists found on Plex server.")
                 return
 
-            self._log.info("Plex Playlists:")
+            ui.print_("Plex Playlists:")
             for playlist in sorted(library_playlists, key=lambda p: p.title):
-                self._log.info(f"  - {playlist.title} (ID: {playlist.ratingKey})")
+                ui.print_(f"  - {playlist.title}")
 
         except Exception as e:
             self._log.error(
