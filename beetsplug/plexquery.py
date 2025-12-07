@@ -13,12 +13,8 @@ from typing import cast
 
 import beets
 import requests
-from beets import logging, ui
-from beets.dbcore.query import BLOB_TYPE, InQuery
-from beets.plugins import BeetsPlugin
-from beets.util import PathBytes
-from plexapi.exceptions import NotFound, Unauthorized
-from plexapi.library import MusicSection
+from beets import dbcore, library, logging, plugins, ui, util
+from plexapi import exceptions
 from plexapi.server import Playlist, PlexServer
 
 
@@ -41,7 +37,7 @@ def get_plex_server(
     try:
         server = PlexServer(baseurl, token, timeout=10)
         return server
-    except (Unauthorized, requests.exceptions.RequestException) as e:
+    except (exceptions.Unauthorized, requests.exceptions.RequestException) as e:
         raise ValueError(f"Failed to connect to Plex server at '{baseurl}': {e}")
 
 
@@ -51,9 +47,9 @@ def get_plex_music_library_key(
 ) -> float:
     """Retrieves the unique key for a Plex music library by its name."""
     try:
-        music_library: MusicSection = server.library.section(library_name)
+        music_library: library.MusicSection = server.library.section(library_name)
         return music_library.key
-    except NotFound:
+    except exceptions.NotFound:
         raise ValueError(f"Plex music library '{library_name}' not found.")
     except Exception as e:
         raise ValueError(f"Error accessing Plex library '{library_name}': {e}") from e
@@ -72,14 +68,70 @@ def filter_playlist_items_by_library(
             yield item
 
 
-class PlexPlaylistQuery(InQuery[bytes]):
+def get_plex_playlist_items_plexapi(
+    server: PlexServer,
+    playlist_name: str,
+    beets_dir: str,
+    plex_dir: str,
+    library_key: float,
+    logger: logging.Logger,
+) -> list[util.PathBytes]:
+    """Fetches item paths for a given Plex playlist using plexapi."""
+    try:
+        try:
+            playlist = server.playlist(playlist_name)
+        except exceptions.NotFound:
+            logger.warning(f"Plex playlist '{playlist_name}' not found.")
+            return []
+
+        item_paths: list[util.PathBytes] = []
+
+        for item in filter_playlist_items_by_library(
+            cast(Playlist, playlist), library_key
+        ):
+            if hasattr(item, "media"):
+                for media in item.media:
+                    for part in media.parts:
+                        full_plex_path = (
+                            part.file
+                        )  # This is the server-side filesystem path
+                        if full_plex_path:
+                            translated_path = full_plex_path
+                            if (
+                                plex_dir
+                                and beets_dir
+                                and full_plex_path.startswith(plex_dir)
+                            ):
+                                translated_path = full_plex_path.replace(
+                                    plex_dir, beets_dir, 1
+                                )
+                                logger.debug(
+                                    f"Plex path: {full_plex_path}, Translated to: {translated_path}"
+                                )
+                            else:
+                                # If no mapping or path doesn't start with plex_dir, use original Plex path
+                                logger.debug(
+                                    f"Using original Plex path: {full_plex_path}"
+                                )
+
+                            item_paths.append(
+                                beets.util.bytestring_path(translated_path)
+                            )
+        return item_paths
+    except Exception as e:
+        raise ValueError(
+            f"Error fetching Plex playlist '{playlist_name}': {e}",
+        )
+
+
+class PlexPlaylistItemQuery(dbcore.query.InQuery[bytes]):
     """Matches files listed by a Plex playlist."""
 
     _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
 
     @property
-    def subvals(self) -> Sequence[BLOB_TYPE]:
-        return [BLOB_TYPE(p) for p in self.playlist_item_paths]
+    def subvals(self) -> Sequence[dbcore.query.BLOB_TYPE]:
+        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_item_paths]
 
     def __init__(self, _, playlist_name: str, __):
         """
@@ -100,12 +152,13 @@ class PlexPlaylistQuery(InQuery[bytes]):
                 beets.config["plex"]["library_name"].get(),
             )
 
-            self.playlist_item_paths = self.get_plex_playlist_items_plexapi(
+            self.playlist_item_paths = get_plex_playlist_items_plexapi(
                 plex_server,
                 playlist_name,
                 beets.config["directory"].as_filename(),
                 beets.config["plexquery"]["plex_dir"].get(),
                 library_key,
+                self._log,
             )
             super().__init__("path", self.playlist_item_paths)
         except (ValueError, Exception) as e:
@@ -115,65 +168,68 @@ class PlexPlaylistQuery(InQuery[bytes]):
             self.playlist_item_paths = []
             super().__init__("path", [])
 
-    def get_plex_playlist_items_plexapi(
-        self,
-        server: PlexServer,
-        playlist_name: str,
-        beets_dir: str,
-        plex_dir: str,
-        library_key: float,
-    ) -> list[PathBytes]:
-        """Fetches item paths for a given Plex playlist using plexapi."""
+
+class PlexPlaylistAlbumQuery(dbcore.query.InQuery[bytes]):
+    """Matches albums based on items listed by a Plex playlist (album-level)."""
+
+    _log = logging.getLogger("beets.plexquery.PlexPlaylistAlbumQuery")
+
+    @property
+    def subvals(self) -> Sequence[dbcore.query.BLOB_TYPE]:
+        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_album_ids]
+
+    def __init__(self, _, playlist_name: str, __):
         try:
-            try:
-                playlist = server.playlist(playlist_name)
-            except NotFound:
-                self._log.warning(f"Plex playlist '{playlist_name}' not found.")
-                return []
-
-            item_paths: list[PathBytes] = []
-
-            for item in filter_playlist_items_by_library(
-                cast(Playlist, playlist), library_key
-            ):
-                if hasattr(item, "media"):
-                    for media in item.media:
-                        for part in media.parts:
-                            full_plex_path = (
-                                part.file
-                            )  # This is the server-side filesystem path
-                            if full_plex_path:
-                                translated_path = full_plex_path
-                                if (
-                                    plex_dir
-                                    and beets_dir
-                                    and full_plex_path.startswith(plex_dir)
-                                ):
-                                    translated_path = full_plex_path.replace(
-                                        plex_dir, beets_dir, 1
-                                    )
-                                    self._log.debug(
-                                        f"Plex path: {full_plex_path}, Translated to: {translated_path}"
-                                    )
-                                else:
-                                    # If no mapping or path doesn't start with plex_dir, use original Plex path
-                                    self._log.debug(
-                                        f"Using original Plex path: {full_plex_path}"
-                                    )
-
-                                item_paths.append(
-                                    beets.util.bytestring_path(translated_path)
-                                )
-            return item_paths
-        except Exception as e:
-            self._log.error(
-                f"Error fetching Plex playlist '{playlist_name}': {e}",
+            plex_server = get_plex_server(
+                beets.config["plex"]["host"].get(),
+                beets.config["plex"]["port"].get(),
+                beets.config["plex"]["token"].get(),
+                beets.config["plex"]["secure"].get(bool),
             )
-            raise
+
+            library_key = get_plex_music_library_key(
+                plex_server,
+                beets.config["plex"]["library_name"].get(),
+            )
+
+            # Get the item paths from Plex
+            plex_item_paths = get_plex_playlist_items_plexapi(
+                plex_server,
+                playlist_name,
+                beets.config["directory"].as_filename(),
+                beets.config["plexquery"]["plex_dir"].get(),
+                library_key,
+                self._log,
+            )
+
+            lib = library.Library(beets.config["library"].as_filename())
+
+            unique_album_ids: set[bytes] = set()
+            for item_path in plex_item_paths:
+                # Need to lookup items by path to get their album IDs
+                # Beets' path field uses the util.PathBytes type, which are bytes
+                items_in_beets = lib.items(
+                    f"path:{item_path.decode('utf-8')}"
+                )  # Decode to string for query
+
+                for beets_item in items_in_beets:
+                    unique_album_ids.add(beets_item.album_id)  # Convert UUID to string
+
+            self.playlist_album_ids = list(unique_album_ids)
+
+            super().__init__("albumid", self.playlist_album_ids)
+
+        except (ValueError, Exception) as e:
+            self._log.error(
+                f"Error setting up Plex playlist album query for '{playlist_name}': {e}",
+            )
+            self.playlist_album_ids = []
+            super().__init__("albumid", [])
 
 
-class PlexQueryPlugin(BeetsPlugin):
-    item_queries = {"plexquery-playlist": PlexPlaylistQuery}
+class PlexQueryPlugin(plugins.BeetsPlugin):
+    item_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
+    album_queries = {"plexquery-playlist": PlexPlaylistAlbumQuery}
 
     def __init__(self):
         super().__init__()
