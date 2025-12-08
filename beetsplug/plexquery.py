@@ -108,7 +108,7 @@ def get_plex_playlist(
         playlist = plex.playlist(playlist_name)
         if not isinstance(playlist, Playlist):
             raise utils.ValueError(f"Playlist '{playlist_name}' is invalid.")
-        if not playlist.isAudio():
+        if not playlist.isAudio:
             raise utils.ValueError(
                 f"Playlist '{playlist_name}' playlist.isAudio() is False."
             )
