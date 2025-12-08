@@ -157,7 +157,7 @@ def get_plex_playlist_tracks(
         raise
     except Exception as e:
         raise utils.UnhandledError(
-            f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
+            f"An unexpected error occurred attempting to access Items in Playlist '{playlist_name}'."
         ) from e
 
 
