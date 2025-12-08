@@ -19,7 +19,7 @@ from plexapi.media import Media, MediaPart
 from plexapi.playlist import Playlist
 from plexapi.server import PlexServer
 
-from beetsplug import exceptions as PlexQueryExceptions
+from beetsplug import utils as PlexQueryExceptions
 
 
 def get_protocol(secure: bool) -> str:
@@ -215,13 +215,41 @@ def get_beets_paths_from_tracks(
     beets_paths: list[str] = []
 
     for plex_path in plex_paths:
-        if plex_dir and beets_dir and plex_path.startswith(plex_dir):
-            translated_path = plex_path.replace(plex_dir, beets_dir, 1)
-            beets_paths.append(translated_path)
+        # Ensure plex_path is treated as UTF-8 string
+        # If plex_path is already a proper unicode string, .decode() will raise an error.
+        # So we try to decode it, if it's bytes, otherwise assume it's already unicode.
+        try:
+            decoded_plex_path = plex_path.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            decoded_plex_path = plex_path
+
+        # Also decode beets_dir and plex_dir for consistent comparison
+        try:
+            decoded_plex_dir = plex_dir.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            decoded_plex_dir = plex_dir
+
+        try:
+            decoded_beets_dir = beets_dir.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            decoded_beets_dir = beets_dir
+
+        translated_path = decoded_plex_path
+
+        if (
+            decoded_plex_dir
+            and decoded_beets_dir
+            and decoded_plex_path.startswith(decoded_plex_dir)
+        ):
+            translated_path = decoded_plex_path.replace(
+                decoded_plex_dir, decoded_beets_dir, 1
+            )
             logger.debug(f"Plex path: {plex_path} -> {translated_path}")
         else:
             # If no mapping or path doesn't start with plex_dir, use original Plex path
             logger.debug(f"Plex path: {plex_path}")
+
+        beets_paths.append(translated_path)
 
     return [beets.util.bytestring_path(path) for path in beets_paths]
 
