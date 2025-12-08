@@ -217,7 +217,12 @@ def get_beets_paths_from_tracks(
             # If no mapping or path doesn't start with plex_dir, use original Plex path
             logger.debug(f"Plex path: {plex_path!r}")
 
-        beets_paths.append(translated_path)
+        if not os.path.exists(translated_path):
+            logger.warning(
+                f"Translated path '{translated_path!r}' does not exist on the filesystem. Skipping."
+            )
+        else:
+            beets_paths.append(translated_path)
 
     return [beets.util.bytestring_path(path) for path in beets_paths]
 
