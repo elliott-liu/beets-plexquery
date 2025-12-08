@@ -9,7 +9,7 @@ Put something like the following in your config.yaml to configure:
 """
 
 import os
-from collections.abc import Sequence
+from pathlib import Path
 
 import beets
 from beets import dbcore, logging, plugins, ui, util
@@ -238,7 +238,7 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
         The 'pattern' argument here is expected to be the Plex playlist name.
         """
 
-        self.track_paths: list[str] = []
+        self.track_paths: list[Path] = []
 
         try:
             plex = get_plex_server(
@@ -260,12 +260,15 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 library_section_key,
             )
 
-            self.track_paths = get_beets_paths_from_plex_tracks(
-                tracks,
-                beets.config["directory"].as_filename(),
-                beets.config["plexquery"]["plex_dir"].get(),
-                self._log,
-            )
+            self.track_paths = [
+                Path(p).expanduser().resolve()
+                for p in get_beets_paths_from_plex_tracks(
+                    tracks,
+                    beets.config["directory"].as_filename(),
+                    beets.config["plexquery"]["plex_dir"].get(),
+                    self._log,
+                )
+            ]
 
         except utils.NotFound as e:
             self._log.warning(
