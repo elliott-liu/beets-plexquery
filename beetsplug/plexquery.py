@@ -144,10 +144,10 @@ def get_plex_playlist_tracks(
             )
 
         tracks: list[Track] = []
-        for item_index, item in playlist_items:
+        for item in playlist_items:
             if not isinstance(item, Track):
                 raise utils.ValueError(
-                    f"Playlist '{playlist_name}' playlist.items[{item_index}] '{item}' is invalid."
+                    f"Playlist '{playlist_name}' item '{item}' is not a valid Track."
                 )
             tracks.append(item)
 
