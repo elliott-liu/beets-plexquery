@@ -227,7 +227,7 @@ def get_beets_paths_from_plex_tracks(
     return track_paths
 
 
-class PlexPlaylistItemQuery(dbcore.query.InQuery):
+class PlexPlaylistItemQuery(dbcore.query.PathQuery):
     """Matches files listed by a Plex playlist."""
 
     _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
@@ -236,7 +236,7 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
     def subvals(self) -> Sequence[dbcore.query.SQLiteType]:
         return [dbcore.query.BLOB_TYPE(p) for p in self.track_paths]
 
-    def __init__(self, _, playlist_name: str, __):
+    def __init__(self, field_name: str, pattern: str, fast: bool = True):
         """
         Initializes the query by fetching items from a Plex playlist.
         The 'pattern' argument here is expected to be the Plex playlist name.
@@ -257,20 +257,23 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 beets.config["plex"]["library_name"].get(),
             )
 
+            playlist_name = pattern
             tracks = get_plex_playlist_tracks(
                 plex,
                 playlist_name,
                 library_section_key,
             )
 
-            beets_paths = get_beets_paths_from_plex_tracks(
+            resolved_string_paths = get_beets_paths_from_plex_tracks(
                 tracks,
                 beets.config["directory"].as_filename(),
                 beets.config["plexquery"]["plex_dir"].get(),
                 self._log,
             )
-            normalized_paths = [util.normpath(util.syspath(p)) for p in beets_paths]
-            self.track_paths = [util.bytestring_path(p) for p in normalized_paths]
+
+            self.track_paths = [
+                util.bytestring_path(p_str) for p_str in resolved_string_paths
+            ]
 
         except utils.NotFound as e:
             self._log.warning(
@@ -289,7 +292,9 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
 
-        super().__init__("path", self.track_paths)
+        super().__init__(
+            "path", b"", fast
+        )  # Pass a dummy byte string pattern. Actual values come from self.track_paths via subvals.
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
