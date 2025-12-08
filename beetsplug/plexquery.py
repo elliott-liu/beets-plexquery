@@ -112,9 +112,9 @@ def get_plex_playlist(
             raise utils.ValueError(
                 f"Playlist '{playlist_name}' playlist.isAudio() is False."
             )
-        if playlist.librarySectionID != library_section_key:
+        if not playlist.librarySectionID == library_section_key:
             raise utils.ValueError(
-                f"Playlist '{playlist_name}' playlist.librarySectionKey '{playlist.librarySectionKey}' is not library_section_key '{library_section_key}'."
+                f"Playlist '{playlist_name}' playlist.librarySectionID '{playlist.librarySectionKey}' is not library_section_key '{library_section_key}'."
             )
         return playlist
     except exceptions.NotFound as e:
