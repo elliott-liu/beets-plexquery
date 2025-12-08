@@ -66,7 +66,7 @@ def get_plex_library_section_key(
         raise
     except Exception as e:
         raise utils.UnhandledError(
-            f"An unexpected error occurred attempting to access Plex library '{library_name}'."
+            f"An unexpected error occurred attempting to access Plex library '{library_name}': {e}"
         ) from e
 
 
@@ -93,7 +93,7 @@ def get_plex_playlists(
         raise
     except Exception as e:
         raise utils.UnhandledError(
-            "An unexpected error occurred attempting to retrieve Playlists."
+            f"An unexpected error occurred attempting to retrieve Playlists: {e}"
         ) from e
 
 
@@ -123,7 +123,7 @@ def get_plex_playlist(
         raise
     except Exception as e:
         raise utils.UnhandledError(
-            f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
+            f"An unexpected error occurred attempting to access Playlist '{playlist_name}': {e}"
         ) from e
 
 
@@ -157,7 +157,7 @@ def get_plex_playlist_tracks(
         raise
     except Exception as e:
         raise utils.UnhandledError(
-            f"An unexpected error occurred attempting to access Items in Playlist '{playlist_name}'."
+            f"An unexpected error occurred attempting to access Items in Playlist '{playlist_name}': {e}"
         ) from e
 
 
