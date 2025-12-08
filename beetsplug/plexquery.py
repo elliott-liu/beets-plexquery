@@ -11,15 +11,14 @@ Put something like the following in your config.yaml to configure:
 from collections.abc import Sequence
 
 import beets
-from beets import dbcore, logging, plugins, ui, util
+from beets import dbcore, exceptions, logging, plugins, ui, util
 from plexapi.audio import Track
-from plexapi.exceptions import NotFound
 from plexapi.library import LibrarySection
 from plexapi.media import Media, MediaPart
 from plexapi.playlist import Playlist
 from plexapi.server import PlexServer
 
-from beetsplug import utils as PlexQueryExceptions
+from beetsplug import utils as utils
 
 
 def get_protocol(secure: bool) -> str:
@@ -51,25 +50,21 @@ def get_plex_library_section_key(
     try:
         section = plex.library.section(library_name)
         if not isinstance(section, LibrarySection):
-            raise PlexQueryExceptions.ValueError(
-                f"Library '{library_name}' section is invalid."
-            )
+            raise utils.ValueError(f"Library '{library_name}' section is invalid.")
 
         key = section.key
         if not isinstance(key, int) or isinstance(key, bool):
-            raise PlexQueryExceptions.ValueError(
+            raise utils.ValueError(
                 f"Library '{library_name} section.key '{key}' is invalid."
             )
 
         return key
-    except NotFound as e:
-        raise PlexQueryExceptions.NotFound(
-            f"Library '{library_name}' not found."
-        ) from e
-    except PlexQueryExceptions.ValueError:
+    except exceptions.NotFound as e:
+        raise utils.NotFound(f"Library '{library_name}' not found.") from e
+    except utils.ValueError:
         raise
     except Exception as e:
-        raise PlexQueryExceptions.UnhandledError(
+        raise utils.UnhandledError(
             f"An unexpected error occurred attempting to access Plex library '{library_name}'."
         ) from e
 
@@ -87,16 +82,16 @@ def get_plex_playlists(
         )
         for playlist in playlists:
             if not isinstance(playlist, Playlist):
-                raise PlexQueryExceptions.ValueError(
+                raise utils.ValueError(
                     "Playlist from library  server.playlists() is invalid."
                 )
 
             valid_playlists.append(playlist)
         return valid_playlists
-    except PlexQueryExceptions.ValueError:
+    except utils.ValueError:
         raise
     except Exception as e:
-        raise PlexQueryExceptions.UnhandledError(
+        raise utils.UnhandledError(
             "An unexpected error occurred attempting to retrieve Playlists."
         ) from e
 
@@ -111,26 +106,22 @@ def get_plex_playlist(
     try:
         playlist = plex.playlist(playlist_name)
         if not isinstance(playlist, Playlist):
-            raise PlexQueryExceptions.ValueError(
-                f"Playlist '{playlist_name}' is invalid."
-            )
+            raise utils.ValueError(f"Playlist '{playlist_name}' is invalid.")
         if not playlist.isAudio():
-            raise PlexQueryExceptions.ValueError(
+            raise utils.ValueError(
                 f"Playlist '{playlist_name}' playlist.isAudio() is False."
             )
         if playlist.librarySectionKey != library_section_key:
-            raise PlexQueryExceptions.ValueError(
+            raise utils.ValueError(
                 f"Playlist '{playlist_name}' playlist.librarySectionKey '{playlist.librarySectionKey}' is not library_section_key '{library_section_key}'."
             )
         return playlist
-    except NotFound as e:
-        raise PlexQueryExceptions.NotFound(
-            f"Playlist '{playlist_name}' not found."
-        ) from e
-    except PlexQueryExceptions.ValueError:
+    except exceptions.NotFound as e:
+        raise utils.NotFound(f"Playlist '{playlist_name}' not found.") from e
+    except utils.ValueError:
         raise
     except Exception as e:
-        raise PlexQueryExceptions.UnhandledError(
+        raise utils.UnhandledError(
             f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
         ) from e
 
@@ -147,24 +138,24 @@ def get_plex_playlist_tracks(
         playlist_items = playlist.items
 
         if not isinstance(playlist_items, list):
-            raise PlexQueryExceptions.ValueError(
+            raise utils.ValueError(
                 f"Playlist '{playlist_name}' playlist.items is invalid."
             )
 
         tracks: list[Track] = []
         for item_index, item in playlist_items:
             if not isinstance(item, Track):
-                raise PlexQueryExceptions.ValueError(
+                raise utils.ValueError(
                     f"Playlist '{playlist_name}' playlist.items[{item_index}] '{item}' is invalid."
                 )
             tracks.append(item)
 
         return tracks
 
-    except (PlexQueryExceptions.NotFound, PlexQueryExceptions.ValueError):
+    except (utils.NotFound, utils.ValueError):
         raise
     except Exception as e:
-        raise PlexQueryExceptions.UnhandledError(
+        raise utils.UnhandledError(
             f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
         ) from e
 
@@ -182,31 +173,31 @@ def get_beets_paths_from_tracks(
     for track_index, track in tracks:
         medias = track.media
         if not isinstance(medias, list):
-            raise PlexQueryExceptions.ValueError(
+            raise utils.ValueError(
                 f"Track '{track.guid}' track[{track_index}].media is invalid."
             )
 
         for media_index, media in medias:
             if not isinstance(media, Media):
-                raise PlexQueryExceptions.ValueError(
+                raise utils.ValueError(
                     f"Track '{track.guid}' track[{track_index}].media[{media_index}] is invalid."
                 )
 
             parts = media.parts
             if not isinstance(parts, list):
-                raise PlexQueryExceptions.ValueError(
+                raise utils.ValueError(
                     f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts is invalid."
                 )
 
             for part_index, part in parts:
                 if not isinstance(part, MediaPart):
-                    raise PlexQueryExceptions.ValueError(
+                    raise utils.ValueError(
                         f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}] is invalid."
                     )
 
                 file = part.file
                 if not isinstance(file, str):
-                    raise PlexQueryExceptions.ValueError(
+                    raise utils.ValueError(
                         f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}].file is invalid."
                     )
 
@@ -296,15 +287,15 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
             )
 
             super().__init__("path", self.track_paths)
-        except PlexQueryExceptions.NotFound as e:
+        except utils.NotFound as e:
             self._log.warning(
                 f"NotFound exemption attempting to build PlexPlaylistItemQuery: {e}"
             )
-        except PlexQueryExceptions.ValueError as e:
+        except utils.ValueError as e:
             self._log.error(
                 f"ValueError exemption attempting to build PlexPlaylistItemQuery: {e}"
             )
-        except PlexQueryExceptions.UnhandledError as e:
+        except utils.UnhandledError as e:
             self._log.error(
                 f"UnhandledError exemption attempting to build PlexPlaylistItemQuery: {e}"
             )
@@ -385,15 +376,15 @@ class PlexQueryPlugin(plugins.BeetsPlugin):
             for playlist in playlists:
                 ui.print_(playlist.title)
 
-        except PlexQueryExceptions.NotFound as e:
+        except utils.NotFound as e:
             self._log.warning(
                 f"NotFound exemption attempting to build PlexQueryPlugin: {e}"
             )
-        except PlexQueryExceptions.ValueError as e:
+        except utils.ValueError as e:
             self._log.error(
                 f"ValueError exemption attempting to build PlexQueryPlugin: {e}"
             )
-        except PlexQueryExceptions.UnhandledError as e:
+        except utils.UnhandledError as e:
             self._log.error(
                 f"UnhandledError exemption attempting to build PlexQueryPlugin: {e}"
             )
