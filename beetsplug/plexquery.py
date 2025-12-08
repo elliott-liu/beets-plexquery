@@ -105,16 +105,14 @@ def get_plex_playlist(
     """Retrieves a playlist by its name."""
 
     try:
+        playlists = get_plex_playlists(plex, library_section_key)
+        playlists_guids = [p.guid for p in playlists]
         playlist = plex.playlist(playlist_name)
         if not isinstance(playlist, Playlist):
             raise utils.ValueError(f"Playlist '{playlist_name}' is invalid.")
-        if not playlist.isAudio:
+        if playlist.guid not in playlists_guids:
             raise utils.ValueError(
-                f"Playlist '{playlist_name}' playlist.isAudio() is False."
-            )
-        if not playlist.librarySectionID == library_section_key:
-            raise utils.ValueError(
-                f"Playlist '{playlist_name}' playlist.librarySectionID '{playlist.librarySectionKey}' is not library_section_key '{library_section_key}'."
+                f"Playlist '{playlist_name}' (GUID: {playlist.guid}) is not associated with library section key '{library_section_key}' based on GUID comparison."
             )
         return playlist
     except exceptions.NotFound as e:
