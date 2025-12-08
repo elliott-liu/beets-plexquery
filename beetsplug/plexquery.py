@@ -295,7 +295,7 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
 
         super().__init__(
             "path",
-            [p.__bytes__() for p in self.track_paths],
+            [util.bytestring_path(p) for p in self.track_paths],
         )
 
 
