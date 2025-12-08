@@ -160,12 +160,12 @@ def get_plex_playlist_tracks(
         ) from e
 
 
-def get_beets_paths_from_tracks(
+def get_beets_paths_from_plex_tracks(
     tracks: list[Track],
     beets_dir: str,
     plex_dir: str,
     logger: logging.Logger,
-) -> list[util.PathBytes]:
+) -> list[str]:
     """Converts Plex tracks to beets-compatible paths."""
 
     plex_paths: list[str] = []
@@ -197,7 +197,7 @@ def get_beets_paths_from_tracks(
 
                 plex_paths.append(file)
 
-    beets_paths: list[str] = []
+    track_paths: list[str] = []
 
     for plex_path in plex_paths:
         translated_path = os.fspath(plex_path)
@@ -218,13 +218,13 @@ def get_beets_paths_from_tracks(
             logger.debug(f"Plex path: {plex_path!r}")
 
         if not os.path.exists(translated_path):
-            logger.warning(
+            raise utils.NotFound(
                 f"Translated path '{translated_path!r}' does not exist on the filesystem. Skipping."
             )
-        else:
-            beets_paths.append(translated_path)
 
-    return [beets.util.bytestring_path(path) for path in beets_paths]
+        track_paths.append(translated_path)
+
+    return track_paths
 
 
 class PlexPlaylistItemQuery(dbcore.query.InQuery):
@@ -263,12 +263,14 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 library_section_key,
             )
 
-            self.track_paths = get_beets_paths_from_tracks(
+            beets_paths = get_beets_paths_from_plex_tracks(
                 tracks,
                 beets.config["directory"].as_filename(),
                 beets.config["plexquery"]["plex_dir"].get(),
                 self._log,
             )
+            normalized_paths = [util.normpath(util.syspath(p)) for p in beets_paths]
+            self.track_paths = [util.bytestring_path(p) for p in normalized_paths]
 
         except utils.NotFound as e:
             self._log.warning(
