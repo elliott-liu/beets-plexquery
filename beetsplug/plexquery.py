@@ -8,6 +8,7 @@ Put something like the following in your config.yaml to configure:
         token: token
 """
 
+import os
 from collections.abc import Sequence
 
 import beets
@@ -199,39 +200,22 @@ def get_beets_paths_from_tracks(
     beets_paths: list[str] = []
 
     for plex_path in plex_paths:
-        # Ensure plex_path is treated as UTF-8 string
-        # If plex_path is already a proper unicode string, .decode() will raise an error.
-        # So we try to decode it, if it's bytes, otherwise assume it's already unicode.
-        try:
-            decoded_plex_path = plex_path.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            decoded_plex_path = plex_path
-
-        # Also decode beets_dir and plex_dir for consistent comparison
-        try:
-            decoded_plex_dir = plex_dir.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            decoded_plex_dir = plex_dir
-
-        try:
-            decoded_beets_dir = beets_dir.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            decoded_beets_dir = beets_dir
-
-        translated_path = decoded_plex_path
+        translated_path = os.fspath(plex_path)
+        decoded_plex_dir = os.fspath(plex_dir)
+        decoded_beets_dir = os.fspath(beets_dir)
 
         if (
             decoded_plex_dir
             and decoded_beets_dir
-            and decoded_plex_path.startswith(decoded_plex_dir)
+            and translated_path.startswith(decoded_plex_dir)
         ):
-            translated_path = decoded_plex_path.replace(
+            translated_path = translated_path.replace(
                 decoded_plex_dir, decoded_beets_dir, 1
             )
-            logger.debug(f"Plex path: {plex_path} -> {translated_path}")
+            logger.debug(f"Plex path: {plex_path!r} -> {translated_path!r}")
         else:
             # If no mapping or path doesn't start with plex_dir, use original Plex path
-            logger.debug(f"Plex path: {plex_path}")
+            logger.debug(f"Plex path: {plex_path!r}")
 
         beets_paths.append(translated_path)
 
