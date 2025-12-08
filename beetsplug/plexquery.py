@@ -142,10 +142,10 @@ def get_plex_playlist_tracks(
             )
 
         tracks: list[Track] = []
-        for item_index, item in playlist_items:
+        for item in playlist_items:
             if not isinstance(item, Track):
                 raise utils.ValueError(
-                    f"Playlist '{playlist_name}' playlist.items[{item_index}] '{item}' is invalid."
+                    f"Playlist '{playlist_name}' item '{item}' is not a valid Track."
                 )
             tracks.append(item)
 
@@ -169,35 +169,29 @@ def get_beets_paths_from_tracks(
 
     plex_paths: list[str] = []
 
-    for track_index, track in tracks:
+    for track in tracks:
         medias = track.media
         if not isinstance(medias, list):
-            raise utils.ValueError(
-                f"Track '{track.guid}' track[{track_index}].media is invalid."
-            )
+            raise utils.ValueError(f"Track '{track.guid}' .media is invalid.")
 
-        for media_index, media in medias:
+        for media in medias:
             if not isinstance(media, Media):
-                raise utils.ValueError(
-                    f"Track '{track.guid}' track[{track_index}].media[{media_index}] is invalid."
-                )
+                raise utils.ValueError(f"Track '{track.guid}' media is invalid.")
 
             parts = media.parts
             if not isinstance(parts, list):
-                raise utils.ValueError(
-                    f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts is invalid."
-                )
+                raise utils.ValueError(f"Track '{track.guid}' media.parts is invalid.")
 
-            for part_index, part in parts:
+            for part in parts:
                 if not isinstance(part, MediaPart):
                     raise utils.ValueError(
-                        f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}] is invalid."
+                        f"Track '{track.guid}' media.parts item is invalid."
                     )
 
                 file = part.file
                 if not isinstance(file, str):
                     raise utils.ValueError(
-                        f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}].file is invalid."
+                        f"Track '{track.guid}' media.parts.file is invalid."
                     )
 
                 plex_paths.append(file)
