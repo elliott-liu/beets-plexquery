@@ -261,6 +261,8 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
         The 'pattern' argument here is expected to be the Plex playlist name.
         """
 
+        self.track_paths: list[util.PathBytes] = []
+
         try:
             plex = get_plex_server(
                 beets.config["plex"]["host"].get(),
@@ -287,7 +289,6 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 self._log,
             )
 
-            super().__init__("path", self.track_paths)
         except utils.NotFound as e:
             self._log.warning(
                 f"NotFound exemption attempting to build PlexPlaylistItemQuery: {e}"
@@ -304,6 +305,8 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
             self._log.error(
                 f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
+
+        super().__init__("path", self.track_paths)
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
