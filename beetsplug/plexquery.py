@@ -11,7 +11,8 @@ Put something like the following in your config.yaml to configure:
 from collections.abc import Sequence
 
 import beets
-from beets import dbcore, exceptions, logging, plugins, ui, util
+from beets import dbcore, logging, plugins, ui, util
+from plexapi import exceptions
 from plexapi.audio import Track
 from plexapi.library import LibrarySection
 from plexapi.media import Media, MediaPart
