@@ -270,6 +270,12 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 )
             ]
 
+            for path_obj in self.track_paths:
+                if not path_obj.exists():
+                    self._log.warning(
+                        f"Path '{str(path_obj)!r}' resolved by pathlib does not exist."
+                    )
+
         except utils.NotFound as e:
             self._log.warning(
                 f"NotFound exemption attempting to build PlexPlaylistItemQuery: {e}"
@@ -287,7 +293,10 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
 
-        super().__init__("path", self.track_paths)
+        super().__init__(
+            "path",
+            [p.__bytes__ for p in self.track_paths],
+        )
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
