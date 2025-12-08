@@ -9,13 +9,17 @@ Put something like the following in your config.yaml to configure:
 """
 
 from collections.abc import Sequence
-from typing import cast
 
 import beets
-import requests
-from beets import dbcore, library, logging, plugins, ui, util
-from plexapi import exceptions
-from plexapi.server import Playlist, PlexServer
+from beets import dbcore, logging, plugins, ui, util
+from plexapi.audio import Track
+from plexapi.exceptions import NotFound
+from plexapi.library import LibrarySection
+from plexapi.media import Media, MediaPart
+from plexapi.playlist import Playlist
+from plexapi.server import PlexServer
+
+from beetsplug import exceptions as PlexQueryExceptions
 
 
 def get_protocol(secure: bool) -> str:
@@ -32,106 +36,204 @@ def get_plex_server(
     secure: bool,
 ) -> PlexServer:
     """Connects to and returns a PlexServer object."""
+
     baseurl = f"{get_protocol(secure)}://{host}:{port}"
-
-    try:
-        server = PlexServer(baseurl, token, timeout=10)
-        return server
-    except (exceptions.Unauthorized, requests.exceptions.RequestException) as e:
-        raise ValueError(f"Failed to connect to Plex server at '{baseurl}': {e}")
+    plex = PlexServer(baseurl, token, timeout=10)
+    return plex
 
 
-def get_plex_music_library_key(
-    server: PlexServer,
+def get_plex_library_section_key(
+    plex: PlexServer,
     library_name: str,
-) -> float:
-    """Retrieves the unique key for a Plex music library by its name."""
+) -> int:
+    """Retrieves the unique key for a library by its name."""
+
     try:
-        music_library: library.MusicSection = server.library.section(library_name)
-        return music_library.key
-    except exceptions.NotFound:
-        raise ValueError(f"Plex music library '{library_name}' not found.")
+        section = plex.library.section(library_name)
+        if not isinstance(section, LibrarySection):
+            raise PlexQueryExceptions.ValueError(
+                f"Library '{library_name}' section is invalid."
+            )
+
+        key = section.key
+        if not isinstance(key, int) or isinstance(key, bool):
+            raise PlexQueryExceptions.ValueError(
+                f"Library '{library_name} section.key '{key}' is invalid."
+            )
+
+        return key
+    except NotFound as e:
+        raise PlexQueryExceptions.NotFound(
+            f"Library '{library_name}' not found."
+        ) from e
+    except PlexQueryExceptions.ValueError:
+        raise
     except Exception as e:
-        raise ValueError(f"Error accessing Plex library '{library_name}': {e}") from e
+        raise PlexQueryExceptions.UnhandledError(
+            f"An unexpected error occurred attempting to access Plex library '{library_name}'."
+        ) from e
 
 
-def filter_playlist_items_by_library(
-    playlist: Playlist,
-    library_key: float,
-):
-    """
-    Filters items from a Plex playlist, yielding only those belonging
-    to the specified Plex library key.
-    """
-    for item in cast(Playlist, playlist).items():
-        if hasattr(item, "librarySectionID") and item.librarySectionID == library_key:
-            yield item
+def get_plex_playlists(
+    plex: PlexServer,
+    library_section_key: int,
+) -> list[Playlist]:
+    """Retrieves a playlist by its name."""
+
+    try:
+        valid_playlists: list[Playlist] = []
+        playlists = plex.playlists(
+            playlistType="audio", sectionId=library_section_key, sort="title:asc"
+        )
+        for playlist in playlists:
+            if not isinstance(playlist, Playlist):
+                raise PlexQueryExceptions.ValueError(
+                    "Playlist from library  server.playlists() is invalid."
+                )
+
+            valid_playlists.append(playlist)
+        return valid_playlists
+    except PlexQueryExceptions.ValueError:
+        raise
+    except Exception as e:
+        raise PlexQueryExceptions.UnhandledError(
+            "An unexpected error occurred attempting to retrieve Playlists."
+        ) from e
 
 
-def get_plex_playlist_items_plexapi(
-    server: PlexServer,
+def get_plex_playlist(
+    plex: PlexServer,
     playlist_name: str,
+    library_section_key: int,
+) -> Playlist:
+    """Retrieves a playlist by its name."""
+
+    try:
+        playlist = plex.playlist(playlist_name)
+        if not isinstance(playlist, Playlist):
+            raise PlexQueryExceptions.ValueError(
+                f"Playlist '{playlist_name}' is invalid."
+            )
+        if not playlist.isAudio():
+            raise PlexQueryExceptions.ValueError(
+                f"Playlist '{playlist_name}' playlist.isAudio() is False."
+            )
+        if playlist.librarySectionKey != library_section_key:
+            raise PlexQueryExceptions.ValueError(
+                f"Playlist '{playlist_name}' playlist.librarySectionKey '{playlist.librarySectionKey}' is not library_section_key '{library_section_key}'."
+            )
+        return playlist
+    except NotFound as e:
+        raise PlexQueryExceptions.NotFound(
+            f"Playlist '{playlist_name}' not found."
+        ) from e
+    except PlexQueryExceptions.ValueError:
+        raise
+    except Exception as e:
+        raise PlexQueryExceptions.UnhandledError(
+            f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
+        ) from e
+
+
+def get_plex_playlist_tracks(
+    plex: PlexServer,
+    playlist_name: str,
+    library_section_key: int,
+) -> list[Track]:
+    """Retrieves track items for a playlist using its name."""
+
+    try:
+        playlist = get_plex_playlist(plex, playlist_name, library_section_key)
+        playlist_items = playlist.items
+
+        if not isinstance(playlist_items, list):
+            raise PlexQueryExceptions.ValueError(
+                f"Playlist '{playlist_name}' playlist.items is invalid."
+            )
+
+        tracks: list[Track] = []
+        for item_index, item in playlist_items:
+            if not isinstance(item, Track):
+                raise PlexQueryExceptions.ValueError(
+                    f"Playlist '{playlist_name}' playlist.items[{item_index}] '{item}' is invalid."
+                )
+            tracks.append(item)
+
+        return tracks
+
+    except (PlexQueryExceptions.NotFound, PlexQueryExceptions.ValueError):
+        raise
+    except Exception as e:
+        raise PlexQueryExceptions.UnhandledError(
+            f"An unexpected error occurred attempting to access Playlist '{playlist_name}'."
+        ) from e
+
+
+def get_beets_paths_from_tracks(
+    tracks: list[Track],
     beets_dir: str,
     plex_dir: str,
-    library_key: float,
     logger: logging.Logger,
 ) -> list[util.PathBytes]:
-    """Fetches item paths for a given Plex playlist using plexapi."""
-    try:
-        try:
-            playlist = server.playlist(playlist_name)
-        except exceptions.NotFound:
-            logger.warning(f"Plex playlist '{playlist_name}' not found.")
-            return []
+    """Converts Plex tracks to beets-compatible paths."""
 
-        item_paths: list[util.PathBytes] = []
+    plex_paths: list[str] = []
 
-        for item in filter_playlist_items_by_library(
-            cast(Playlist, playlist), library_key
-        ):
-            if hasattr(item, "media"):
-                for media in item.media:
-                    for part in media.parts:
-                        full_plex_path = (
-                            part.file
-                        )  # This is the server-side filesystem path
-                        if full_plex_path:
-                            translated_path = full_plex_path
-                            if (
-                                plex_dir
-                                and beets_dir
-                                and full_plex_path.startswith(plex_dir)
-                            ):
-                                translated_path = full_plex_path.replace(
-                                    plex_dir, beets_dir, 1
-                                )
-                                logger.debug(
-                                    f"Plex path: {full_plex_path}, Translated to: {translated_path}"
-                                )
-                            else:
-                                # If no mapping or path doesn't start with plex_dir, use original Plex path
-                                logger.debug(
-                                    f"Using original Plex path: {full_plex_path}"
-                                )
+    for track_index, track in tracks:
+        medias = track.media
+        if not isinstance(medias, list):
+            raise PlexQueryExceptions.ValueError(
+                f"Track '{track.guid}' track[{track_index}].media is invalid."
+            )
 
-                            item_paths.append(
-                                beets.util.bytestring_path(translated_path)
-                            )
-        return item_paths
-    except Exception as e:
-        raise ValueError(
-            f"Error fetching Plex playlist '{playlist_name}': {e}",
-        )
+        for media_index, media in medias:
+            if not isinstance(media, Media):
+                raise PlexQueryExceptions.ValueError(
+                    f"Track '{track.guid}' track[{track_index}].media[{media_index}] is invalid."
+                )
+
+            parts = media.parts
+            if not isinstance(parts, list):
+                raise PlexQueryExceptions.ValueError(
+                    f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts is invalid."
+                )
+
+            for part_index, part in parts:
+                if not isinstance(part, MediaPart):
+                    raise PlexQueryExceptions.ValueError(
+                        f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}] is invalid."
+                    )
+
+                file = part.file
+                if not isinstance(file, str):
+                    raise PlexQueryExceptions.ValueError(
+                        f"Track '{track.guid}' track[{track_index}].media[{media_index}].parts[{part_index}].file is invalid."
+                    )
+
+                plex_paths.append(file)
+
+    beets_paths: list[str] = []
+
+    for plex_path in plex_paths:
+        if plex_dir and beets_dir and plex_path.startswith(plex_dir):
+            translated_path = plex_path.replace(plex_dir, beets_dir, 1)
+            beets_paths.append(translated_path)
+            logger.debug(f"Plex path: {plex_path} -> {translated_path}")
+        else:
+            # If no mapping or path doesn't start with plex_dir, use original Plex path
+            logger.debug(f"Plex path: {plex_path}")
+
+    return [beets.util.bytestring_path(path) for path in beets_paths]
 
 
-class PlexPlaylistItemQuery(dbcore.query.InQuery[bytes]):
+class PlexPlaylistItemQuery(dbcore.query.InQuery):
     """Matches files listed by a Plex playlist."""
 
     _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
 
     @property
-    def subvals(self) -> Sequence[dbcore.query.BLOB_TYPE]:
-        return [dbcore.query.BLOB_TYPE(p) for p in self.playlist_item_paths]
+    def subvals(self) -> Sequence[dbcore.query.SQLiteType]:
+        return [dbcore.query.BLOB_TYPE(p) for p in self.track_paths]
 
     def __init__(self, _, playlist_name: str, __):
         """
@@ -140,30 +242,47 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery[bytes]):
         """
 
         try:
-            plex_server = get_plex_server(
+            plex = get_plex_server(
                 beets.config["plex"]["host"].get(),
                 beets.config["plex"]["port"].get(),
                 beets.config["plex"]["token"].get(),
                 beets.config["plex"]["secure"].get(bool),
             )
 
-            library_key = get_plex_music_library_key(
-                plex_server,
+            library_section_key = get_plex_library_section_key(
+                plex,
                 beets.config["plex"]["library_name"].get(),
             )
 
-            self.playlist_item_paths = get_plex_playlist_items_plexapi(
-                plex_server,
+            tracks = get_plex_playlist_tracks(
+                plex,
                 playlist_name,
+                library_section_key,
+            )
+
+            self.track_paths = get_beets_paths_from_tracks(
+                tracks,
                 beets.config["directory"].as_filename(),
                 beets.config["plexquery"]["plex_dir"].get(),
-                library_key,
                 self._log,
             )
-            super().__init__("path", self.playlist_item_paths)
-        except (ValueError, Exception) as e:
+
+            super().__init__("path", self.track_paths)
+        except PlexQueryExceptions.NotFound as e:
+            self._log.warning(
+                f"NotFound exemption attempting to build PlexPlaylistItemQuery: {e}"
+            )
+        except PlexQueryExceptions.ValueError as e:
             self._log.error(
-                f"Error setting up Plex playlist query for '{playlist_name}': {e}",
+                f"ValueError exemption attempting to build PlexPlaylistItemQuery: {e}"
+            )
+        except PlexQueryExceptions.UnhandledError as e:
+            self._log.error(
+                f"UnhandledError exemption attempting to build PlexPlaylistItemQuery: {e}"
+            )
+        except Exception as e:
+            self._log.error(
+                f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
 
 
@@ -222,60 +341,35 @@ class PlexQueryPlugin(plugins.BeetsPlugin):
         """Beets CLI handler to list all Plex playlists."""
 
         try:
-            plex_server = get_plex_server(
+            plex = get_plex_server(
                 beets.config["plex"]["host"].get(),
                 beets.config["plex"]["port"].get(),
                 beets.config["plex"]["token"].get(),
                 beets.config["plex"]["secure"].get(bool),
             )
-        except ValueError as e:
-            self._log.error(f"Failed to connect to Plex server: {e}")
-            return
-        except Exception as e:
-            self._log.error(
-                f"An unexpected error occurred while connecting to Plex: {e}"
-            )
-            return
 
-        try:
-            library_key = get_plex_music_library_key(
-                plex_server,
+            library_section_key = get_plex_library_section_key(
+                plex,
                 beets.config["plex"]["library_name"].get(),
             )
-        except ValueError as e:
-            self._log.error(f"Failed to get Plex library key: {e}")
-            return
-        except Exception as e:
-            self._log.error(
-                f"An unexpected error occurred while getting library key: {e}"
-            )
-            return
 
-        try:
-            playlists = plex_server.playlists()
-            library_playlists = []
-
+            playlists = get_plex_playlists(plex, library_section_key)
             for playlist in playlists:
-                try:
-                    if (
-                        next(
-                            filter_playlist_items_by_library(
-                                cast(Playlist, playlist), library_key
-                            ),
-                            None,
-                        )
-                        is not None
-                    ):
-                        library_playlists.append(playlist)
-                except Exception as e:
-                    self._log.debug(
-                        f"Could not inspect items for playlist '{cast(Playlist, playlist).title}': {e}"
-                    )
-
-            for playlist in sorted(library_playlists, key=lambda p: p.title):
                 ui.print_(playlist.title)
 
+        except PlexQueryExceptions.NotFound as e:
+            self._log.warning(
+                f"NotFound exemption attempting to build PlexQueryPlugin: {e}"
+            )
+        except PlexQueryExceptions.ValueError as e:
+            self._log.error(
+                f"ValueError exemption attempting to build PlexQueryPlugin: {e}"
+            )
+        except PlexQueryExceptions.UnhandledError as e:
+            self._log.error(
+                f"UnhandledError exemption attempting to build PlexQueryPlugin: {e}"
+            )
         except Exception as e:
             self._log.error(
-                f"An unexpected error occurred while fetching/filtering playlists: {e}"
+                f"An unexpected error occurred attempting to build PlexQueryPlugin': {e}",
             )
