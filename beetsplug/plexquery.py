@@ -227,7 +227,7 @@ def get_beets_paths_from_plex_tracks(
     return track_paths
 
 
-class PlexPlaylistItemQuery(dbcore.query.FieldQuery):
+class PlexPlaylistItemQuery(dbcore.query.InQuery):
     """Matches files listed by a Plex playlist."""
 
     _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
