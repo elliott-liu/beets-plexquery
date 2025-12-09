@@ -227,7 +227,7 @@ def get_beets_paths_from_plex_tracks(
     return track_paths
 
 
-class PlexPlaylistItemQuery(dbcore.query.InQuery):
+class PlexPlaylistItemQuery(dbcore.query.FieldQuery):
     """Matches files listed by a Plex playlist."""
 
     _log = logging.getLogger("beets.plexquery.PlexPlaylistQuery")
@@ -237,8 +237,6 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
         Initializes the query by fetching items from a Plex playlist.
         The 'pattern' argument here is expected to be the Plex playlist name.
         """
-
-        self.track_paths: list[Path] = []
 
         try:
             plex = get_plex_server(
@@ -260,7 +258,7 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 library_section_key,
             )
 
-            self.track_paths = [
+            track_paths: list[Path] = [
                 Path(p).expanduser().resolve()
                 for p in get_beets_paths_from_plex_tracks(
                     tracks,
@@ -270,11 +268,15 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 )
             ]
 
-            for path_obj in self.track_paths:
-                if not path_obj.exists():
+            for track_path in track_paths:
+                if not track_path.exists():
                     self._log.warning(
-                        f"Path '{str(path_obj)!r}' resolved by pathlib does not exist."
+                        f"Path '{str(track_path)!r}' resolved by pathlib does not exist."
                     )
+
+            self.pattern = [
+                dbcore.query.BLOB_TYPE(util.bytestring_path(p)) for p in track_paths
+            ]
 
         except utils.NotFound as e:
             self._log.warning(
@@ -293,15 +295,16 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
 
-        super().__init__(
-            "path",
-            [util.bytestring_path(p) for p in self.track_paths],
-        )
+        super().__init__("path", self.pattern, fast=False)
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
-    item_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
-    album_queries = {"plexquery-playlist": PlexPlaylistItemQuery}
+    item_queries: dict[str, dbcore.query.FieldQueryType] = {
+        "plexquery-playlist": PlexPlaylistItemQuery
+    }
+    album_queries: dict[str, dbcore.query.FieldQueryType] = {
+        "plexquery-playlist": PlexPlaylistItemQuery
+    }
 
     def __init__(self):
         super().__init__()
