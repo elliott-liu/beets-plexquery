@@ -295,7 +295,7 @@ class PlexPlaylistItemQuery(dbcore.query.InQuery):
                 f"An unexpected error occurred attempting to build PlexPlaylistItemQuery': {e}",
             )
 
-        super().__init__("path", self.pattern, fast=False)
+        super().__init__("path", self.pattern, fast=True)
 
 
 class PlexQueryPlugin(plugins.BeetsPlugin):
